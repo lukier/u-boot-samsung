@@ -94,6 +94,7 @@ config TARGET_SMDK2410
 
 config TARGET_HANTEK_HDG2000
     bool "Support Hantek HDG2000"
+    select SUPPORT_SPL
     select CPU_ARM920T
 
 config TARGET_INTEGRATORAP_CM926EJS

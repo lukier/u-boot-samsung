@@ -5,6 +5,9 @@
  *
  * (C) Copyright 2002, 2010
  * David Mueller, ELSOFT AG, <d.mueller@elsoft.ch>
+ * 
+ * (C) Copyright 2015
+ * Robert Lukierski <robert@lukierski.eu>
  *
  * SPDX-License-Identifier:	GPL-2.0+
  */
@@ -15,10 +18,39 @@
 #include <asm/io.h>
 #include <asm/arch/s3c24x0_cpu.h>
 
-#include "vcma9.h"
-#include "../common/common_util.h"
-
 DECLARE_GLOBAL_DATA_PTR;
+
+#define FCLK_SPEED 1
+
+#if FCLK_SPEED==0       /* Fout = 203MHz, Fin = 12MHz for Audio */
+#define M_MDIV  0xC3
+#define M_PDIV  0x4
+#define M_SDIV  0x1
+#elif FCLK_SPEED==1     /* Fout = 202.8MHz */
+#define M_MDIV  0xA1
+#define M_PDIV  0x3
+#define M_SDIV  0x1
+#endif
+
+#define USB_CLOCK 1
+
+#if USB_CLOCK==0
+#define U_M_MDIV    0xA1
+#define U_M_PDIV    0x3
+#define U_M_SDIV    0x1
+#elif USB_CLOCK==1
+#define U_M_MDIV    0x48
+#define U_M_PDIV    0x3
+#define U_M_SDIV    0x2
+#endif
+
+
+static inline void pll_delay(unsigned long loops)
+{
+    __asm__ volatile ("1:\n"
+    "subs %0, %1, #1\n"
+    "bne 1b":"=r" (loops):"0" (loops));
+}
 
 /*
  * Miscellaneous platform dependent initialisations
@@ -26,171 +58,78 @@ DECLARE_GLOBAL_DATA_PTR;
 
 int board_early_init_f(void)
 {
-	struct s3c24x0_gpio * const gpio = s3c24x0_get_base_gpio();
-
-	/* set up the I/O ports */
-	writel(0x007FFFFF, &gpio->gpacon);
-	writel(0x002AAAAA, &gpio->gpbcon);
-	writel(0x000002BF, &gpio->gpbup);
-	writel(0xAAAAAAAA, &gpio->gpccon);
-	writel(0x0000FFFF, &gpio->gpcup);
-	writel(0xAAAAAAAA, &gpio->gpdcon);
-	writel(0x0000FFFF, &gpio->gpdup);
-	writel(0xAAAAAAAA, &gpio->gpecon);
-	writel(0x000037F7, &gpio->gpeup);
-	writel(0x00000000, &gpio->gpfcon);
-	writel(0x00000000, &gpio->gpfup);
-	writel(0xFFEAFF5A, &gpio->gpgcon);
-	writel(0x0000F0DC, &gpio->gpgup);
-	writel(0x0028AAAA, &gpio->gphcon);
-	writel(0x00000656, &gpio->gphup);
-
-	/* setup correct IRQ modes for NIC (rising edge mode) */
-	writel((readl(&gpio->extint2) & ~(7<<8)) | (4<<8),  &gpio->extint2);
-
-	/* select USB port 2 to be host or device (setup as host for now) */
-	writel(readl(&gpio->misccr) | 0x08, &gpio->misccr);
-
-	return 0;
+    struct s3c24x0_clock_power * const clk_power = s3c24x0_get_base_clock_power();
+    struct s3c24x0_gpio * const gpio = s3c24x0_get_base_gpio();
+    
+    /* to reduce PLL lock time, adjust the LOCKTIME register */
+    writel(0xFFFFFF, &clk_power->locktime);
+    
+    /* configure MPLL */
+    writel((M_MDIV << 12) + (M_PDIV << 4) + M_SDIV, &clk_power->mpllcon);
+    
+    /* some delay between MPLL and UPLL */
+    pll_delay(4000);
+    
+    /* configure UPLL */
+    writel((U_M_MDIV << 12) + (U_M_PDIV << 4) + U_M_SDIV, &clk_power->upllcon);
+    
+    /* some delay between MPLL and UPLL */
+    pll_delay(8000);
+    
+    /* set up the I/O ports */
+    writel(0x007FFFFF, &gpio->gpacon);
+    writel(0x00044555, &gpio->gpbcon);
+    writel(0x000007FF, &gpio->gpbup);
+    writel(0xAAAAAAAA, &gpio->gpccon);
+    writel(0x0000FFFF, &gpio->gpcup);
+    writel(0xAAAAAAAA, &gpio->gpdcon);
+    writel(0x0000FFFF, &gpio->gpdup);
+    writel(0xAAAAAAAA, &gpio->gpecon);
+    writel(0x0000FFFF, &gpio->gpeup);
+    writel(0x000055AA, &gpio->gpfcon);
+    writel(0x000000FF, &gpio->gpfup);
+    writel(0xFF95FFBA, &gpio->gpgcon);
+    writel(0x0000FFFF, &gpio->gpgup);
+    writel(0x002AFAAA, &gpio->gphcon);
+    writel(0x000007FF, &gpio->gphup);
+    
+    return 0;
 }
 
 int board_init(void)
 {
-	/* adress of boot parameters */
-	gd->bd->bi_boot_params = 0x30000100;
-
-	icache_enable();
-	dcache_enable();
-
-	return 0;
-}
-
-/*
- * Get some Board/PLD Info
- */
-
-static u8 get_pld_reg(enum vcma9_pld_regs reg)
-{
-	return readb(VCMA9_PLD_BASE + reg);
-}
-
-static u8 get_pld_version(void)
-{
-	return (get_pld_reg(VCMA9_PLD_ID) >> 4) & 0x0F;
-}
-
-static u8 get_pld_revision(void)
-{
-	return get_pld_reg(VCMA9_PLD_ID) & 0x0F;
-}
-
-static uchar get_board_pcb(void)
-{
-	return ((get_pld_reg(VCMA9_PLD_BOARD) >> 4) & 0x03) + 'A';
-}
-
-static u8 get_nr_chips(void)
-{
-	switch ((get_pld_reg(VCMA9_PLD_SDRAM) >> 4) & 0x0F) {
-		case 0: return 4;
-		case 1: return 1;
-		case 2: return 2;
-		default: return 0;
-	}
-}
-
-static ulong get_chip_size(void)
-{
-	switch (get_pld_reg(VCMA9_PLD_SDRAM) & 0x0F) {
-		case 0: return 16 * (1024*1024);
-		case 1: return 32 * (1024*1024);
-		case 2: return  8 * (1024*1024);
-		case 3: return  8 * (1024*1024);
-		default: return 0;
-	}
-}
-
-static const char *get_chip_geom(void)
-{
-	switch (get_pld_reg(VCMA9_PLD_SDRAM) & 0x0F) {
-		case 0: return "4Mx8x4";
-		case 1: return "8Mx8x4";
-		case 2: return "2Mx8x4";
-		case 3: return "4Mx8x2";
-		default: return "unknown";
-	}
-}
-
-static void vcma9_show_info(char *board_name, char *serial)
-{
-	printf("Board: %s SN: %s  PCB Rev: %c PLD(%d,%d)\n",
-		board_name, serial,
-		get_board_pcb(), get_pld_version(), get_pld_revision());
-	printf("SDRAM: %d chips %s\n", get_nr_chips(), get_chip_geom());
+    /* arch number of SMDK2410-Board */
+    gd->bd->bi_arch_number = MACH_TYPE_SMDK2410;
+    
+    /* adress of boot parameters */
+    gd->bd->bi_boot_params = 0x30000100;
+    
+    icache_enable();
+    dcache_enable();
+    
+    return 0;
 }
 
 int dram_init(void)
 {
-	/* dram_init must store complete ramsize in gd->ram_size */
-	gd->ram_size = get_chip_size() * get_nr_chips();
-	return 0;
+    /* dram_init must store complete ramsize in gd->ram_size */
+    gd->ram_size = PHYS_SDRAM_1_SIZE;
+    return 0;
 }
 
-/*
- * Check Board Identity:
- */
-
-int checkboard(void)
-{
-	char s[50];
-	int i;
-	backup_t *b = (backup_t *) s;
-
-	i = getenv_f("serial#", s, 32);
-	if ((i < 0) || strncmp (s, "VCMA9", 5)) {
-		get_backup_values (b);
-		if (strncmp (b->signature, "MPL\0", 4) != 0) {
-			puts ("### No HW ID - assuming VCMA9");
-		} else {
-			b->serial_name[5] = 0;
-			vcma9_show_info(b->serial_name, &b->serial_name[6]);
-		}
-	} else {
-		s[5] = 0;
-		vcma9_show_info(s, &s[6]);
-	}
-
-	return 0;
-}
-
+#if 0
 int board_late_init(void)
 {
-	/*
-	 * check if environment is healthy, otherwise restore values
-	 * from shadow copy
-	 */
-	check_env();
-	return 0;
+    return 0;
 }
-
-void vcma9_print_info(void)
-{
-	char *s = getenv("serial#");
-
-	if (!s) {
-		puts ("### No HW ID - assuming VCMA9");
-	} else {
-		s[5] = 0;
-		vcma9_show_info(s, &s[6]);
-	}
-}
+#endif
 
 #ifdef CONFIG_CMD_NET
 int board_eth_init(bd_t *bis)
 {
-	int rc = 0;
-#ifdef CONFIG_CS8900
-	rc = cs8900_initialize(0, CONFIG_CS8900_BASE);
+    int rc = 0;
+#ifdef CONFIG_DRIVER_DM9000
+    rc = dm9000_initialize(bis);
 #endif
 	return rc;
 }
@@ -202,8 +141,8 @@ int board_eth_init(bd_t *bis)
  */
 ulong board_flash_get_legacy(ulong base, int banknum, flash_info_t *info)
 {
-	info->portwidth = FLASH_CFI_16BIT;
-	info->chipwidth = FLASH_CFI_BY16;
-	info->interface = FLASH_CFI_X16;
-	return 1;
+    info->portwidth = FLASH_CFI_16BIT;
+    info->chipwidth = FLASH_CFI_BY16;
+    info->interface = FLASH_CFI_X16;
+    return 1;
 }

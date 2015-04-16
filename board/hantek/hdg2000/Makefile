@@ -5,7 +5,8 @@
 # SPDX-License-Identifier:	GPL-2.0+
 #
 
-obj-y	:= ../common/common_util.o
-obj-y	+= hdg2000.o
-
+obj-y	:= hdg2000.o
 obj-y	+= lowlevel_init.o
+ifdef	CONFIG_SPL_BUILD
+obj-y	+= nand_read.o
+endif

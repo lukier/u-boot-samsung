@@ -10,6 +10,6 @@ config SYS_SOC
 	default "s3c24x0"
 
 config SYS_CONFIG_NAME
-	default "hantek_hdg2000"
+	default "hdg2000"
 
 endif
