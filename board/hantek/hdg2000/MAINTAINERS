@@ -1,0 +1,6 @@
+HANTEK HDG2000 BOARD
+M:	Robert Lukierski <robert@lukierski.eu>
+S:	Maintained
+F:	board/hantek/hdg2000/
+F:	include/configs/hdg2000.h
+F:	configs/hantek_hdg2000_defconfig

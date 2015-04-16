@@ -5,5 +5,7 @@
 # SPDX-License-Identifier:	GPL-2.0+
 #
 
-obj-y	:= hantek2416.o
+obj-y	:= ../common/common_util.o
+obj-y	+= hdg2000.o
+
 obj-y	+= lowlevel_init.o

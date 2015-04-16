@@ -1,15 +1,15 @@
-if TARGET_SMDK2410
+if TARGET_HANTEK_HDG2000
 
 config SYS_BOARD
-	default "smdk2410"
+	default "hdg2000"
 
 config SYS_VENDOR
-	default "samsung"
+	default "hantek"
 
 config SYS_SOC
 	default "s3c24x0"
 
 config SYS_CONFIG_NAME
-	default "smdk2410"
+	default "hantek_hdg2000"
 
 endif

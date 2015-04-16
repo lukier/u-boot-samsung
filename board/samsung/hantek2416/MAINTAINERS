@@ -1,6 +1,0 @@
-HANTE2416 BOARD
-M:	Robert Lukierski <robert@lukierski.eu>
-S:	Maintained
-F:	board/samsung/hantek2416/
-F:	include/configs/hantek2416.h
-F:	configs/hantek2416_defconfig
